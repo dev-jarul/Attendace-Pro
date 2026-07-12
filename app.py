@@ -8,6 +8,9 @@ import io
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
+# --- MATIKAN WARNING PANDAS YANG MEMICU SEGMENTATION FAULT ---
+pd.options.mode.chained_assignment = None
+
 # --- KONFIGURASI HALAMAN WEB ---
 st.set_page_config(page_title="Office Attendance Cloud", page_icon="🏢", layout="centered")
 
