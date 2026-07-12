@@ -1,5 +1,5 @@
-streamlit>=1.40.0
-pandas>=2.2.0
-openpyxl
-gspread
+streamlit==1.40.0
+pandas==2.2.3
+openpyxl==3.1.5
+gspread==6.2.1
 pytz
