@@ -54,7 +54,7 @@ if cek_login():
             st.stop()
 
     # ==================== FUNGSI OTOMATISASI VISUAL SHEETS ====================
-    def perbarui_desain_visual_sheet(ws, jumlah_kolom=9):
+    def perbarui_desain_visual_sheet(ws, jumlah_kolom=8):
         try:
             ws.columns_auto_resize(1, jumlah_kolom)
             total_baris = len(ws.get_all_values())
@@ -180,13 +180,13 @@ if cek_login():
     bulan_lokal = BULAN_INDO.get(datetime.now(tz_jakarta).strftime("%B"), datetime.now(tz_jakarta).strftime("%B"))
     sheet_bulan_ini = f"Absen_{bulan_lokal}_{datetime.now(tz_jakarta).strftime('%Y')}"
     
-    # DISELARASKAN: Sesuai struktur 9 kolom Anda di ab1.png
-    HEADER_ABSEN = ["Tanggal", "Hari", "NIP", "Nama Pegawai", "Jabatan", "Jam Masuk", "Jam Pulang", "Jam Kerja", "Aktivitas/Pekerjaan Hari Ini"]
+    # 100% SESUAI REALITA GOOGLE SHEETS ANDA (8 KOLOM)
+    HEADER_ABSEN = ["Tanggal", "Hari", "NIP", "Nama Pegawai", "Jabatan", "Jam Masuk", "Jam Pulang", "Aktivitas/Pekerjaan Hari Ini"]
 
     if sheet_bulan_ini not in daftar_sheet:
-        ws_b_init = sh.add_worksheet(title=sheet_bulan_ini, rows="1000", cols="9")
+        ws_b_init = sh.add_worksheet(title=sheet_bulan_ini, rows="1000", cols="8")
         ws_b_init.append_row(HEADER_ABSEN)
-        perbarui_desain_visual_sheet(ws_b_init, jumlah_kolom=9)
+        perbarui_desain_visual_sheet(ws_b_init, jumlah_kolom=8)
         daftar_sheet.append(sheet_bulan_ini)
 
     pilihan_bulan = [t for t in daftar_sheet if t != TAB_MASTER]
@@ -258,10 +258,10 @@ if cek_login():
                         if not df_cek.empty and not df_cek[(df_cek["Tanggal"] == tanggal_hari_ini) & (df_cek["NIP"] == str(nip_pilihan))].empty:
                             st.error(f"❌ Anda ({detail_karyawan['Nama Pegawai']}) sudah melakukan absen masuk hari ini!")
                         else:
-                            # Mengikuti urutan 9 kolom: Tanggal, Hari, NIP, Nama, Jabatan, Jam Masuk, Jam Pulang, Jam Kerja, Aktivitas
-                            baris_absen = [tanggal_hari_ini, ambil_hari_ini(), detail_karyawan["NIP"], detail_karyawan["Nama Pegawai"], detail_karyawan["Jabatan"], jam_sekarang_str, "-", "00:00", "-"]
+                            # 8 Kolom: Tanggal, Hari, NIP, Nama, Jabatan, Jam Masuk, Jam Pulang, Aktivitas
+                            baris_absen = [tanggal_hari_ini, ambil_hari_ini(), detail_karyawan["NIP"], detail_karyawan["Nama Pegawai"], detail_karyawan["Jabatan"], jam_sekarang_str, "-", "-"]
                             ws_bulan_sekarang.append_row(baris_absen)
-                            perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=9)
+                            perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=8)
                             st.success(f"🎉 Absen masuk disimpan jam {jam_sekarang_str} WIB.")
                             st.rerun()
                             
@@ -281,30 +281,15 @@ if cek_login():
                             if data_cek:
                                 for idx, row in enumerate(data_cek):
                                     if str(row.get("Tanggal")) == tanggal_hari_ini and str(row.get("NIP")) == nip_pilihan:
-                                        jam_masuk_str = row.get("Jam Masuk")
-                                        try:
-                                            t1 = datetime.strptime(jam_masuk_str, "%H:%M")
-                                            t2 = datetime.strptime(jam_pulang_str, "%H:%M")
-                                            selisih = t2 - t1
-                                            total_detik = selisih.total_seconds()
-                                            if total_detik < 0: total_detik += 86400
-                                            jam_durasi = int(total_detik // 3600)
-                                            menit_durasi = int((total_detik % 3600) // 60)
-                                            durasi_kerja_str = f"{jam_durasi:02d}:{menit_durasi:02d}"
-                                        except Exception:
-                                            durasi_kerja_str = "00:00"
-                                        
-                                        # PERBAIKAN KOORDINAT KOLOM SESUAI STRUKTUR 9 KOLOM
                                         baris_sheet = idx + 2
                                         ws_bulan_sekarang.update_cell(baris_sheet, 7, jam_pulang_str)       # Kolom G (Jam Pulang)
-                                        ws_bulan_sekarang.update_cell(baris_sheet, 8, durasi_kerja_str)     # Kolom H (Jam Kerja)
-                                        ws_bulan_sekarang.update_cell(baris_sheet, 9, pekerjaan_hari_ini)   # Kolom I (Aktivitas)
+                                        ws_bulan_sekarang.update_cell(baris_sheet, 8, pekerjaan_hari_ini)   # Kolom H (Aktivitas)
                                         baris_ketemu = True
                                         break
                                     
                             if baris_ketemu:
-                                perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=9)
-                                st.success(f"✨ Absen pulang tercatat jam {jam_pulang_str} WIB. Durasi Kerja: {durasi_kerja_str}.")
+                                perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=8)
+                                st.success(f"✨ Absen pulang tercatat jam {jam_pulang_str} WIB.")
                                 st.rerun()
                             else:
                                 st.error(f"❌ Log absen masuk tanggal {tanggal_hari_ini} tidak ditemukan di bulan ini.")
@@ -333,7 +318,6 @@ if cek_login():
             st.success("Akses Terbuka. Silakan kelola manajemen kantor di bawah ini.")
             st.write("---")
             
-            # --- REKAPITULASI DIREKSI ---
             st.markdown("### 📊 📈 Rekapitulasi Performa Bulanan (Laporan Atasan)")
             if df_master.empty:
                 st.info(f"Belum ada data absensi di tab periode '{sheet_aktif}' untuk dihitung.")
@@ -431,7 +415,7 @@ if cek_login():
                 if df_pegawai.empty:
                     st.info("Database master kosong.")
                 else:
-                    karyawan_dihapus = st.selectbox("Pilib Karyawan yang Ingin Dihapus:", options=list_dropdown_karyawan, key="sb_hapus")
+                    karyawan_dihapus = st.selectbox("Pilih Karyawan yang Ingin Dihapus:", options=list_dropdown_karyawan, key="sb_hapus")
                     nip_hapus_target = karyawan_dihapus.split(" - ")[0]
                     if st.button("Hapus Permanen Karyawan", type="primary", use_container_width=True):
                         idx_hapus = df_pegawai[df_pegawai["NIP"] == nip_hapus_target].index[0]
@@ -452,7 +436,7 @@ if cek_login():
                     total_baris_fisik = len(nilai_fisik_sheet)
                     if total_baris_fisik > 1:
                         ws_target_ops.delete_rows(total_baris_fisik)
-                        perbarui_desain_visual_sheet(ws_target_ops, jumlah_kolom=9)
+                        perbarui_desain_visual_sheet(ws_target_ops, jumlah_kolom=8)
                         st.success(f"✔️ Sukses! Satu baris transaksi terakhir telah terhapus.")
                         st.rerun()
                     else:
@@ -469,7 +453,7 @@ if cek_login():
             if st.button("🚨 RESTART & WIPE OUT: BERSIHKAN SEMUA DATA SHEET LOG", type="primary", use_container_width=True, disabled=not konfirmasi_wipe_out):
                 try:
                     sheet_pemulihan_sementara = f"Mulai_Baru_{sheet_bulan_ini}"
-                    ws_temp = sh.add_worksheet(title=sheet_pemulihan_sementara, rows="1000", cols="9")
+                    ws_temp = sh.add_worksheet(title=sheet_pemulihan_sementara, rows="1000", cols="8")
                     ws_temp.append_row(HEADER_ABSEN)
                     
                     for sheet_loop in sh.worksheets():
@@ -477,7 +461,7 @@ if cek_login():
                             sh.del_worksheet(sheet_loop)
                     
                     ws_temp.update_title(sheet_bulan_ini)
-                    perbarui_desain_visual_sheet(ws_temp, jumlah_kolom=9)
+                    perbarui_desain_visual_sheet(ws_temp, jumlah_kolom=8)
                     
                     st.success("💥 Database Berhasil Direset Total!")
                     st.rerun()
