@@ -2,6 +2,7 @@ import streamlit as st
 import gspread
 import json
 from datetime import datetime
+import pytz  
 import pandas as pd
 import io
 from openpyxl.styles import PatternFill, Font, Alignment
@@ -117,13 +118,16 @@ if cek_login():
                 worksheet.column_dimensions[get_column_letter(col[0].column)].width = max(max_len + 4, 12)
         return buffer.getvalue()
 
+    # --- KONSTRUKSI ZONA WAKTU LOKAL INDONESIA ---
+    tz_jakarta = pytz.timezone('Asia/Jakarta')
+
     KAMUS_HARI = {
         "Monday": "Senin", "Tuesday": "Selasa", "Wednesday": "Rabu",
         "Thursday": "Kamis", "Friday": "Jumat", "Saturday": "Sabtu", "Sunday": "Minggu"
     }
 
     def ambil_hari_ini():
-        hari_inggris = datetime.now().strftime("%A")
+        hari_inggris = datetime.now(tz_jakarta).strftime("%A")
         return KAMUS_HARI.get(hari_inggris, hari_inggris)
 
     # Ambil Dokumen Spreadsheet Utama
@@ -135,7 +139,7 @@ if cek_login():
     HEADER_MASTER = ["NIP", "Nama Pegawai", "Jabatan"]
     
     if TAB_MASTER not in daftar_sheet:
-        ws_m_init = sh.add_worksheet(title=TAB_MASTER, rows="1000", cols="5")
+        ws_m_init = sh.add_worksheet(title=TAB_MASTER, rows="1000", cols="3")
         ws_m_init.append_row(HEADER_MASTER)
         perbarui_desain_visual_sheet(ws_m_init, jumlah_kolom=3)
         daftar_sheet.append(TAB_MASTER)
@@ -162,20 +166,33 @@ if cek_login():
         "May": "Mei", "June": "Juni", "July": "Juli", "August": "Agustus",
         "September": "September", "October": "Oktober", "November": "November", "December": "Desember"
     }
-    bulan_lokal = BULAN_INDO.get(datetime.now().strftime("%B"), datetime.now().strftime("%B"))
-    sheet_bulan_ini = f"Absen_{bulan_lokal}_{datetime.now().strftime('%Y')}"
+    bulan_lokal = BULAN_INDO.get(datetime.now(tz_jakarta).strftime("%B"), datetime.now(tz_jakarta).strftime("%B"))
+    sheet_bulan_ini = f"Absen_{bulan_lokal}_{datetime.now(tz_jakarta).strftime('%Y')}"
     HEADER_ABSEN = ["Tanggal", "Hari", "NIP", "Nama Pegawai", "Jabatan", "Jam Masuk", "Jam Pulang", "Status", "Jam Kerja", "Aktivitas/Pekerjaan Hari Ini"]
 
     if sheet_bulan_ini not in daftar_sheet:
-        ws_b_init = sh.add_worksheet(title=sheet_bulan_ini, rows="1000", cols="12")
+        ws_b_init = sh.add_worksheet(title=sheet_bulan_ini, rows="1000", cols="10")
         ws_b_init.append_row(HEADER_ABSEN)
         perbarui_desain_visual_sheet(ws_b_init, jumlah_kolom=10)
         daftar_sheet.append(sheet_bulan_ini)
 
+    # --- LOGIKA PROTEKSI OTOMATIS (Mencegah Penumpukan Sheet / Maks 12 Periode) ---
+    pilihan_bulan = [t for t in daftar_sheet if t != TAB_MASTER]
+    MAX_LOG_BULANAN = 12
+    
+    if len(pilihan_bulan) > MAX_LOG_BULANAN:
+        # Mengurutkan nama sheet berdasarkan urutan pembuatan di Google Sheets (paling awal = index 0)
+        sheet_tertua_nama = pilihan_bulan[0]
+        try:
+            ws_dihapus_auto = sh.worksheet(sheet_tertua_nama)
+            sh.del_worksheet(ws_dihapus_auto)
+            pilihan_bulan.remove(sheet_tertua_nama)  # Update list pilihan bulan aktif
+        except Exception:
+            pass
+
     # --- TAMPILAN INTERFACE UTAMA ---
     st.title("🏢 Office Attendance Cloud")
     
-    pilihan_bulan = [t for t in daftar_sheet if t != TAB_MASTER]
     sheet_aktif = st.selectbox(
         "📂 Pilih Periode / Bulan Absensi:", 
         options=pilihan_bulan, 
@@ -215,12 +232,14 @@ if cek_login():
                 st.text_input("Jabatan / Divisi:", value=detail_karyawan["Jabatan"], disabled=True)
                 
                 if mode_absen == "Absen Masuk (Datang)":
-                    st.info(f"Jam Masuk Anda akan tercatat secara otomatis menggunakan waktu sekarang (HH:MM).")
+                    st.info(f"Jam Masuk Anda akan tercatat secara otomatis menggunakan waktu sekarang (WIB).")
                     if st.form_submit_button("🚀 Kirim Absen Masuk", type="primary", use_container_width=True):
                         ws_bulan_sekarang = sh.worksheet(sheet_bulan_ini)
-                        jam_sekarang_str = datetime.now().strftime("%H:%M")
-                        status_hadir = "Tepat Waktu" if datetime.now().time() <= datetime.strptime("08:00", "%H:%M").time() else "Terlambat"
-                        tanggal_hari_ini = datetime.now().strftime("%Y-%m-%d")
+                        
+                        waktu_lokal = datetime.now(tz_jakarta)
+                        jam_sekarang_str = waktu_lokal.strftime("%H:%M")
+                        status_hadir = "Tepat Waktu" if waktu_lokal.time() <= datetime.strptime("08:00", "%H:%M").time() else "Terlambat"
+                        tanggal_hari_ini = waktu_lokal.strftime("%Y-%m-%d")
                         
                         data_cek = ws_bulan_sekarang.get_all_records()
                         df_cek = pd.DataFrame(data_cek) if data_cek else pd.DataFrame(columns=HEADER_ABSEN)
@@ -231,7 +250,7 @@ if cek_login():
                             baris_absen = [tanggal_hari_ini, ambil_hari_ini(), detail_karyawan["NIP"], detail_karyawan["Nama Pegawai"], detail_karyawan["Jabatan"], jam_sekarang_str, "-", status_hadir, "00:00", "-"]
                             ws_bulan_sekarang.append_row(baris_absen)
                             perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=10)
-                            st.success(f"🎉 Absen masuk disimpan jam {jam_sekarang_str} ({status_hadir}).")
+                            st.success(f"🎉 Absen masuk disimpan jam {jam_sekarang_str} WIB ({status_hadir}).")
                             st.rerun()
                             
                 else: 
@@ -241,8 +260,9 @@ if cek_login():
                             st.error("⚠️ Gagal! Anda wajib mengisi laporan aktivitas sebelum melakukan absen pulang.")
                         else:
                             ws_bulan_sekarang = sh.worksheet(sheet_bulan_ini)
-                            tanggal_hari_ini = datetime.now().strftime("%Y-%m-%d")
-                            jam_pulang_str = datetime.now().strftime("%H:%M")
+                            waktu_lokal = datetime.now(tz_jakarta)
+                            tanggal_hari_ini = waktu_lokal.strftime("%Y-%m-%d")
+                            jam_pulang_str = waktu_lokal.strftime("%H:%M")
                             data_cek = ws_bulan_sekarang.get_all_records()
                             baris_ketemu = False
                             
@@ -271,7 +291,7 @@ if cek_login():
                                     
                             if baris_ketemu:
                                 perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=10)
-                                st.success(f"✨ Absen pulang tercatat jam {jam_pulang_str}. Durasi: {durasi_kerja_str}.")
+                                st.success(f"✨ Absen pulang tercatat jam {jam_pulang_str} WIB. Durasi Kerja: {durasi_kerja_str}.")
                                 st.rerun()
                             else:
                                 st.error(f"❌ Log absen masuk tanggal {tanggal_hari_ini} tidak ditemukan di bulan ini.")
@@ -417,7 +437,7 @@ if cek_login():
                         st.rerun()
 
             # ==============================================================================
-            # 🛑 MANAGEMENT LOG PENYELESAIAN MASALAH (FITUR HAPUS BARIS DAN WIPE OUT)
+            # MANAGEMENT LOG PENYELESAIAN MASALAH
             # ==============================================================================
             st.write("---")
             st.subheader("⚙️ Manajer Penghapusan Data Log Kontrol")
@@ -425,45 +445,41 @@ if cek_login():
             sheet_target_operasi = st.selectbox("Pilih Target Nama Sheet Bulanan:", options=pilihan_bulan, key="sb_operasi_admin")
             ws_target_ops = sh.worksheet(sheet_target_operasi)
             
-            # FITUR OPTIMAL: Hapus baris data terakhir tanpa menghapus objek lembaran sheet-nya
             if st.button(f"⚠️ Hapus 1 Baris Data Log Terakhir pada Sheet: {sheet_target_operasi}", use_container_width=True):
                 try:
                     nilai_fisik_sheet = ws_target_ops.get_all_values()
                     total_baris_fisik = len(nilai_fisik_sheet)
-                    if total_baris_fisik > 1: # Proteksi agar tidak menghapus baris 1 (Header)
+                    if total_baris_fisik > 1:
                         ws_target_ops.delete_rows(total_baris_fisik)
                         perbarui_desain_visual_sheet(ws_target_ops, jumlah_kolom=10)
                         st.success(f"✔️ Sukses! Satu baris transaksi terakhir di sheet '{sheet_target_operasi}' telah terhapus.")
                         st.rerun()
                     else:
-                        st.warning(f"ℹ️ Lembar '{sheet_target_operasi}' sudah bersih kosong, tidak ada data log lagi yang dapat dihapus.")
+                        st.warning(f"ℹ️ Lembar '{sheet_target_operasi}' sudah bersih kosong.")
                 except Exception as e:
                     st.error(f"Gagal menghapus baris data: {e}")
 
-            # FITUR OPTIMAL: Tombol RESTART / WIPE OUT TOTAL (Membatalkan seluruh sheet & buat baru)
             st.write("")
             st.markdown("---")
             st.markdown("### 🚨 Opsi Reset Total (Wipe Out Database)")
-            st.caption("Fitur ini akan menghapus seluruh data log absensi di semua bulan secara permanen dan membangun ulang sistem baru dari awal.")
+            st.caption("Fitur ini akan menghapus seluruh data log absensi di semua bulan secara permanen.")
             
             konfirmasi_wipe_out = st.checkbox("Saya sadar dan setuju untuk menghendaki menghapus semua sheet bulanan yang ada tanpa sisa.")
             
             if st.button("🚨 RESTART & WIPE OUT: BERSIHKAN SEMUA DATA SHEET LOG", type="primary", use_container_width=True, disabled=not konfirmasi_wipe_out):
                 try:
                     sheet_pemulihan_sementara = f"Mulai_Baru_{sheet_bulan_ini}"
-                    ws_temp = sh.add_worksheet(title=sheet_pemulihan_sementara, rows="1000", cols="12")
+                    ws_temp = sh.add_worksheet(title=sheet_pemulihan_sementara, rows="1000", cols="10")
                     ws_temp.append_row(HEADER_ABSEN)
                     
-                    # Looping membuang seluruh worksheet kecuali tab Master Karyawan dan tab pemulihan sementara
                     for sheet_loop in sh.worksheets():
                         if sheet_loop.title != sheet_pemulihan_sementara and sheet_loop.title != TAB_MASTER:
                             sh.del_worksheet(sheet_loop)
                     
-                    # Kembalikan nama tab sementara ke tab awal bulan berjalan saat ini
                     ws_temp.update_title(sheet_bulan_ini)
                     perbarui_desain_visual_sheet(ws_temp, jumlah_kolom=10)
                     
-                    st.success("💥 Database Berhasil Direset Total! Semua lembaran log lama telah dibersihkan.")
+                    st.success("💥 Database Berhasil Direset Total!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Gagal mengeksekusi sistem wipe-out: {e}")
