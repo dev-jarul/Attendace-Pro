@@ -8,7 +8,9 @@ import io
 from openpyxl.styles import PatternFill, Font, Alignment
 from openpyxl.utils import get_column_letter
 
-# --- MATIKAN WARNING PANDAS YANG MEMICU SEGMENTATION FAULT ---
+# --- MATIKAN WARNING & FITUR CHAINED ASSIGNMENT SECARA TOTAL ---
+import warnings
+warnings.filterwarnings('ignore', category=FutureWarning)
 pd.options.mode.chained_assignment = None
 
 # --- KONFIGURASI HALAMAN WEB ---
@@ -38,9 +40,7 @@ if cek_login():
             kredensial_mentah = st.secrets["connections"]["gsheets"]["service_account"]
             spreadsheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
             
-            # --- PERBAIKAN STRUKTUR JSON UNTUK PYTHON 3.14+ ---
             if isinstance(kredensial_mentah, str):
-                # Memastikan karakter backslash (\n) pada private key tidak merusak parser JSON
                 kredensial_mentah = kredensial_mentah.replace('\\n', '\n')
                 kredensial_json = json.loads(kredensial_mentah, strict=False)
             else:
@@ -168,7 +168,9 @@ if cek_login():
     except Exception:
         df_pegawai = pd.DataFrame(columns=HEADER_MASTER)
 
-    df_pegawai["NIP"] = df_pegawai["NIP"].astype(str)
+    # PERBAIKAN: Gunakan .loc untuk menghindari ChainedAssignmentError
+    if not df_pegawai.empty and "NIP" in df_pegawai.columns:
+        df_pegawai.loc[:, "NIP"] = df_pegawai["NIP"].astype(str)
 
     # Setup Otomatis Nama Sheet Bulanan Aktif Saat Ini
     BULAN_INDO = {
@@ -186,7 +188,6 @@ if cek_login():
         perbarui_desain_visual_sheet(ws_b_init, jumlah_kolom=10)
         daftar_sheet.append(sheet_bulan_ini)
 
-    # --- LOGIKA PROTEKSI OTOMATIS (Maks 12 Periode / Auto-Clean Sheet Tertua) ---
     pilihan_bulan = [t for t in daftar_sheet if t != TAB_MASTER]
     MAX_LOG_BULANAN = 12
     
@@ -217,7 +218,9 @@ if cek_login():
     else:
         df_master = pd.DataFrame(semua_data)
         df_master = df_master[df_master["Tanggal"] != "Tanggal"]
-        df_master["NIP"] = df_master["NIP"].astype(str)
+        # PERBAIKAN: Gunakan .loc untuk menghindari ChainedAssignmentError
+        if "NIP" in df_master.columns:
+            df_master.loc[:, "NIP"] = df_master["NIP"].astype(str)
 
     tab_user, tab_admin = st.tabs(["📝 MODUL ABSENSI KARYAWAN", "🔐 PANEL KONTROL ADMIN"])
 
@@ -340,8 +343,10 @@ if cek_login():
                 
                 df_rekap_final = pd.merge(rekap_hadir, tepat_waktu_series, on='NIP', how='left').fillna(0)
                 df_rekap_final = pd.merge(df_rekap_final, terlambat_series, on='NIP', how='left').fillna(0)
-                df_rekap_final['Tepat Waktu'] = df_rekap_final['Tepat Waktu'].astype(int)
-                df_rekap_final['Terlambat'] = df_rekap_final['Terlambat'].astype(int)
+                
+                # PERBAIKAN: Gunakan .loc untuk menghindari ChainedAssignmentError
+                df_rekap_final.loc[:, 'Tepat Waktu'] = df_rekap_final['Tepat Waktu'].astype(int)
+                df_rekap_final.loc[:, 'Terlambat'] = df_rekap_final['Terlambat'].astype(int)
                 
                 st.dataframe(df_rekap_final, use_container_width=True, hide_index=True)
                 
