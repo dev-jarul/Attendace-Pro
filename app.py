@@ -34,7 +34,14 @@ if cek_login():
         try:
             kredensial_mentah = st.secrets["connections"]["gsheets"]["service_account"]
             spreadsheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-            kredensial_json = json.loads(kredensial_mentah, strict=False)
+            
+            # --- PERBAIKAN STRUKTUR JSON UNTUK PYTHON 3.14+ ---
+            if isinstance(kredensial_mentah, str):
+                # Memastikan karakter backslash (\n) pada private key tidak merusak parser JSON
+                kredensial_mentah = kredensial_mentah.replace('\\n', '\n')
+                kredensial_json = json.loads(kredensial_mentah, strict=False)
+            else:
+                kredensial_json = dict(kredensial_mentah)
             
             gc = gspread.service_account_from_dict(kredensial_json)
             sh = gc.open_by_url(spreadsheet_url)
@@ -176,17 +183,16 @@ if cek_login():
         perbarui_desain_visual_sheet(ws_b_init, jumlah_kolom=10)
         daftar_sheet.append(sheet_bulan_ini)
 
-    # --- LOGIKA PROTEKSI OTOMATIS (Mencegah Penumpukan Sheet / Maks 12 Periode) ---
+    # --- LOGIKA PROTEKSI OTOMATIS (Maks 12 Periode / Auto-Clean Sheet Tertua) ---
     pilihan_bulan = [t for t in daftar_sheet if t != TAB_MASTER]
     MAX_LOG_BULANAN = 12
     
     if len(pilihan_bulan) > MAX_LOG_BULANAN:
-        # Mengurutkan nama sheet berdasarkan urutan pembuatan di Google Sheets (paling awal = index 0)
         sheet_tertua_nama = pilihan_bulan[0]
         try:
             ws_dihapus_auto = sh.worksheet(sheet_tertua_nama)
             sh.del_worksheet(ws_dihapus_auto)
-            pilihan_bulan.remove(sheet_tertua_nama)  # Update list pilihan bulan aktif
+            pilihan_bulan.remove(sheet_tertua_nama) 
         except Exception:
             pass
 
