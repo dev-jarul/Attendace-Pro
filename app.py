@@ -43,7 +43,7 @@ if cek_login():
             st.stop()
 
     # ==================== FUNGSI OTOMATISASI VISUAL SHEETS ====================
-    def perbarui_desain_visual_sheet(ws, jumlah_kolom=9):
+    def perbarui_desain_visual_sheet(ws, jumlah_kolom=10):
         try:
             ws.columns_auto_resize(1, jumlah_kolom)
             total_baris = len(ws.get_all_values())
@@ -52,7 +52,7 @@ if cek_login():
 
             requests = []
             
-            # Format Header (Baris 1)
+            # Format Header (Baris 1) - Biru Eksekutif
             requests.append({
                 "repeatCell": {
                     "range": {"sheetId": ws.id, "startRowIndex": 0, "endRowIndex": 1, "startColumnIndex": 0, "endColumnIndex": jumlah_kolom},
@@ -130,18 +130,33 @@ if cek_login():
     sh = dapatkan_koneksi_spreadsheet()
     daftar_sheet = [ws.title for ws in sh.worksheets()]
     
-    # --- INISIALISASI TAB MASTER PEGAWAI JIKA BELUM ADA ---
+    # --- INISIALISASI TAB MASTER PEGAWAI (VERSI OTOMATIS & ANTI-CRASH) ---
     TAB_MASTER = "Master_Pegawai"
+    HEADER_MASTER = ["NIP", "Nama Pegawai", "Jabatan"]
+    
     if TAB_MASTER not in daftar_sheet:
         ws_m_init = sh.add_worksheet(title=TAB_MASTER, rows="1000", cols="5")
-        ws_m_init.append_row(["NIP", "Nama Pegawai", "Jabatan"])
+        ws_m_init.append_row(HEADER_MASTER)
         perbarui_desain_visual_sheet(ws_m_init, jumlah_kolom=3)
         daftar_sheet.append(TAB_MASTER)
 
-    # Ambil Data Master Pegawai Terkini
     ws_master = sh.worksheet(TAB_MASTER)
-    data_master_mentah = ws_master.get_all_records()
-    df_pegawai = pd.DataFrame(data_master_mentah) if data_master_mentah else pd.DataFrame(columns=["NIP", "Nama Pegawai", "Jabatan"])
+    
+    # Proteksi Cerdas: Jika sheet master kosong total, otomatis pasang header
+    data_master_fisik = ws_master.get_all_values()
+    if len(data_master_fisik) == 0:
+        ws_master.append_row(HEADER_MASTER)
+        perbarui_desain_visual_sheet(ws_master, jumlah_kolom=3)
+
+    # Ambil Data Master Pegawai Terkini secara aman
+    try:
+        data_master_mentah = ws_master.get_all_records()
+        df_pegawai = pd.DataFrame(data_master_mentah)
+        if df_pegawai.empty or "NIP" not in df_pegawai.columns:
+            df_pegawai = pd.DataFrame(columns=HEADER_MASTER)
+    except Exception:
+        df_pegawai = pd.DataFrame(columns=HEADER_MASTER)
+
     df_pegawai["NIP"] = df_pegawai["NIP"].astype(str)
 
     # Setup Otomatis Nama Sheet Bulanan Aktif Saat Ini
@@ -152,19 +167,21 @@ if cek_login():
     }
     bulan_lokal = BULAN_INDO.get(datetime.now().strftime("%B"), datetime.now().strftime("%B"))
     sheet_bulan_ini = f"Absen_{bulan_lokal}_{datetime.now().strftime('%Y')}"
-    HEADER_ABSEN = ["Tanggal", "Hari", "NIP", "Nama Pegawai", "Jabatan", "Jam Masuk", "Jam Pulang", "Status", "Aktivitas/Target"]
+    
+    # FORMAT BARU: Kolom 'Jam Kerja' diletakkan sebelum kolom 'Aktivitas/Pekerjaan Hari Ini'
+    HEADER_ABSEN = ["Tanggal", "Hari", "NIP", "Nama Pegawai", "Jabatan", "Jam Masuk", "Jam Pulang", "Status", "Jam Kerja", "Aktivitas/Pekerjaan Hari Ini"]
 
     # OTOMATISASI: Jika ganti bulan baru, aplikasi otomatis membuat sheet baru secara mandiri
     if sheet_bulan_ini not in daftar_sheet:
-        ws_b_init = sh.add_worksheet(title=sheet_bulan_ini, rows="1000", cols="10")
+        ws_b_init = sh.add_worksheet(title=sheet_bulan_ini, rows="1000", cols="12")
         ws_b_init.append_row(HEADER_ABSEN)
-        perbarui_desain_visual_sheet(ws_b_init, jumlah_kolom=9)
+        perbarui_desain_visual_sheet(ws_b_init, jumlah_kolom=10)
         daftar_sheet.append(sheet_bulan_ini)
 
     # --- TAMPILAN INTERFACE UTAMA ---
     st.title("🏢 Office Attendance Cloud")
     
-    # Filter dropdown agar karyawan/admin bisa memilih lembar periode bulan yang ingin dikelola
+    # Dropdown Filter Periode Bulan Aktif
     pilihan_bulan = [t for t in daftar_sheet if t != TAB_MASTER]
     sheet_aktif = st.selectbox(
         "📂 Pilih Periode / Bulan Absensi:", 
@@ -207,22 +224,23 @@ if cek_login():
                 st.text_input("Nama Lengkap:", value=detail_karyawan["Nama Pegawai"], disabled=True)
                 st.text_input("Jabatan / Divisi:", value=detail_karyawan["Jabatan"], disabled=True)
                 
+                # --- LOGIKA ABSEN MASUK ---
                 if mode_absen == "Absen Masuk (Datang)":
-                    target_kerja = st.text_area("Rencana Aktivitas/Target Kerja Hari Ini:")
+                    st.info(f"Jam Masuk Anda akan tercatat secara otomatis menggunakan waktu sekarang (Format 24 Jam) saat menekan tombol.")
                     
                     if st.form_submit_button("🚀 Kirim Absen Masuk", type="primary", use_container_width=True):
-                        # Selalu arahkan penulisan absen masuk ke sheet bulan berjalan saat ini (sheet_bulan_ini)
                         ws_bulan_sekarang = sh.worksheet(sheet_bulan_ini)
-                        jam_sekarang_str = datetime.now().strftime("%H:%M:%S")
-                        status_hadir = "Tepat Waktu" if datetime.now().time() <= datetime.strptime("08:00:00", "%H:%M:%S").time() else "Terlambat"
+                        
+                        # FORMAT BARU: Waktu Saat Ini (HH:MM)
+                        jam_sekarang_str = datetime.now().strftime("%H:%M")
+                        status_hadir = "Tepat Waktu" if datetime.now().time() <= datetime.strptime("08:00", "%H:%M").time() else "Terlambat"
                         tanggal_hari_ini = datetime.now().strftime("%Y-%m-%d")
                         
-                        # Ambil data pembanding khusus bulan ini untuk cek double absen masuk
                         data_cek = ws_bulan_sekarang.get_all_records()
                         df_cek = pd.DataFrame(data_cek) if data_cek else pd.DataFrame(columns=HEADER_ABSEN)
                         
                         if not df_cek.empty and not df_cek[(df_cek["Tanggal"] == tanggal_hari_ini) & (df_cek["NIP"] == str(nip_pilihan))].empty:
-                            st.error(f"❌ Anda ({detail_karyawan['Nama Pegawai']}) sudah terdata melakukan absen masuk hari ini!")
+                            st.error(f"❌ Anda ({detail_karyawan['Nama Pegawai']}) sudah melakukan absen masuk hari ini!")
                         else:
                             baris_absen = [
                                 tanggal_hari_ini,
@@ -231,43 +249,76 @@ if cek_login():
                                 detail_karyawan["Nama Pegawai"],
                                 detail_karyawan["Jabatan"],
                                 jam_sekarang_str,
-                                "-", 
+                                "-", # Jam Pulang (Belum diisi)
                                 status_hadir,
-                                target_kerja if target_kerja else "-"
+                                "00:00", # Jam Kerja default agar siap dikalkulasi
+                                "-"  # Aktivitas (Diisi saat pulang)
                             ]
                             ws_bulan_sekarang.append_row(baris_absen)
-                            perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=9)
-                            st.success(f"🎉 Semangat Pagi! Absen masuk berhasil disimpan jam {jam_sekarang_str} ({status_hadir}).")
+                            perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=10)
+                            st.success(f"🎉 Semangat Pagi! Absen masuk disimpan jam {jam_sekarang_str} ({status_hadir}).")
                             st.rerun()
                             
-                else: # MODE ABSEN PULANG
+                # --- LOGIKA ABSEN PULANG (DENGAN INPUT PEKERJAAN & JAM KERJA HITUNGAN) ---
+                else: 
+                    pekerjaan_hari_ini = st.text_area("Laporan Aktivitas / Realisasi Pekerjaan Hari Ini:", placeholder="Tuliskan apa saja pekerjaan yang sudah Anda selesaikan hari ini...")
+                    
                     if st.form_submit_button("🔒 Kirim Absen Pulang", type="primary", use_container_width=True):
-                        ws_bulan_sekarang = sh.worksheet(sheet_bulan_ini)
-                        tanggal_hari_ini = datetime.now().strftime("%Y-%m-%d")
-                        jam_pulang_str = datetime.now().strftime("%H:%M:%S")
-                        
-                        data_cek = ws_bulan_sekarang.get_all_records()
-                        baris_ketemu = False
-                        
-                        if data_cek:
-                            for idx, row in enumerate(data_cek):
-                                if str(row.get("Tanggal")) == tanggal_hari_ini and str(row.get("NIP")) == nip_pilihan:
-                                    ws_bulan_sekarang.update_cell(idx + 2, 7, jam_pulang_str) 
-                                    baris_ketemu = True
-                                    break
-                                
-                        if baris_ketemu:
-                            st.success(f"✨ Kerja bagus hari ini! Absen pulang Anda berhasil tercatat pada pukul {jam_pulang_str}.")
-                            st.rerun()
+                        if not pekerjaan_hari_ini or pekerjaan_hari_ini.strip() == "":
+                            st.error("⚠️ Gagal! Anda wajib mengisi laporan aktivitas/pekerjaan hari ini sebelum melakukan absen pulang.")
                         else:
-                            st.error(f"❌ Log absen masuk Anda untuk tanggal {tanggal_hari_ini} tidak ditemukan di bulan ini.")
+                            ws_bulan_sekarang = sh.worksheet(sheet_bulan_ini)
+                            tanggal_hari_ini = datetime.now().strftime("%Y-%m-%d")
+                            jam_pulang_str = datetime.now().strftime("%H:%M")
+                            
+                            data_cek = ws_bulan_sekarang.get_all_records()
+                            baris_ketemu = False
+                            
+                            if data_cek:
+                                for idx, row in enumerate(data_cek):
+                                    if str(row.get("Tanggal")) == tanggal_hari_ini and str(row.get("NIP")) == nip_pilihan:
+                                        jam_masuk_str = row.get("Jam Masuk")
+                                        
+                                        # HITUNG SELISIH JAM KERJA (FORMAT DATA DURASI: HH:MM)
+                                        try:
+                                            t1 = datetime.strptime(jam_masuk_str, "%H:%M")
+                                            t2 = datetime.strptime(jam_pulang_str, "%H:%M")
+                                            selisih = t2 - t1
+                                            
+                                            total_detik = selisih.total_seconds()
+                                            if total_detik < 0: # Proteksi jika ada kerja lembur melewati tengah malam
+                                                total_detik += 86400
+                                                
+                                            jam_durasi = int(total_detik // 3600)
+                                            menit_durasi = int((total_detik % 3600) // 60)
+                                            
+                                            # Format HH:MM (Misal: 08:30) -> Terbaca sebagai kalkulasi durasi angka di Excel
+                                            durasi_kerja_str = f"{jam_durasi:02d}:{menit_durasi:02d}"
+                                        except Exception:
+                                            durasi_kerja_str = "00:00"
+                                        
+                                        # Update sel ke Google Sheets sesuai urutan struktur HEADER_ABSEN
+                                        baris_sheet = idx + 2
+                                        ws_bulan_sekarang.update_cell(baris_sheet, 7, jam_pulang_str)          # Kolom G: Jam Pulang
+                                        ws_bulan_sekarang.update_cell(baris_sheet, 9, durasi_kerja_str)       # Kolom I: Jam Kerja (HH:MM)
+                                        ws_bulan_sekarang.update_cell(baris_sheet, 10, pekerjaan_hari_ini)    # Kolom J: Laporan Kerja
+                                        
+                                        baris_ketemu = True
+                                        break
+                                    
+                            if baris_ketemu:
+                                perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=10)
+                                st.success(f"✨ Kerja bagus hari ini! Absen pulang tercatat jam {jam_pulang_str}. Durasi kerja: {durasi_kerja_str}.")
+                                st.rerun()
+                            else:
+                                st.error(f"❌ Log absen masuk Anda untuk tanggal {tanggal_hari_ini} tidak ditemukan di bulan ini. Silakan absen masuk terlebih dahulu!")
 
         if not df_master.empty:
             st.write("---")
             st.subheader(f"📊 Manifes Log Absensi - Periode {sheet_aktif}")
             st.dataframe(df_master, use_container_width=True, hide_index=True)
             
-            # --- 📥 TOMBOL UNDUH LOG DI UTAMA (DAPAT DIAKSES PEGAWAI MANDIRI) ---
+            # --- TOMBOL UNDUH LOG DI UTAMA (UMUM/PEGAWAI) ---
             excel_data_pegawai = buat_excel_bytes(df_master, sheet_aktif)
             st.download_button(
                 label=f"📥 Unduh Log Manifes Absen Berformat Excel ({sheet_aktif}.xlsx)",
@@ -278,7 +329,7 @@ if cek_login():
             )
 
     # ==============================================================================
-    # TAB KEDUA: PANEL KONTROL ADMIN (ZONA DATA SENSITIF & MANAGEMENT TOOLS)
+    # TAB KEDUA: PANEL KONTROL ADMIN (DASHBOARD REKAP & DROPDOWN MANAGEMENT)
     # ==============================================================================
     with tab_admin:
         st.subheader("🔒 Verifikasi Autentikasi Pengelola")
@@ -288,7 +339,7 @@ if cek_login():
             st.success("Akses Terbuka. Silakan kelola manajemen kantor di bawah ini.")
             st.write("---")
             
-            # --- MENU DATA AGREGASI DIREKSI / REKAP BULANAN ---
+            # --- MENU REKAP BULANAN UNTUK DIREKSI (WARNA HIJAU BOTANI) ---
             st.markdown("### 📊 📈 Rekapitulasi Performa Bulanan (Laporan Atasan)")
             if df_master.empty:
                 st.info(f"Belum ada data absensi di tab periode '{sheet_aktif}' untuk dihitung.")
@@ -304,13 +355,13 @@ if cek_login():
                 
                 st.dataframe(df_rekap_final, use_container_width=True, hide_index=True)
                 
-                # --- TOMBOL UNDUH RINGKASAN ATASAN (TEMA HIJAU EXEKUTIF) ---
+                # Pembuatan File Unduhan Manajemen Direksi (Tema Hijau Tua)
                 buffer_boss = io.BytesIO()
                 with pd.ExcelWriter(buffer_boss, engine='openpyxl') as writer:
                     df_rekap_final.to_excel(writer, index=False, sheet_name="Ringkasan_Absensi")
                     worksheet = writer.book["Ringkasan_Absensi"]
                     
-                    warna_header = PatternFill(start_color="1E4620", end_color="1E4620", fill_type="solid") # Hijau Botani
+                    warna_header = PatternFill(start_color="1E4620", end_color="1E4620", fill_type="solid")
                     warna_zebra = PatternFill(start_color="F1F8F1", end_color="F1F8F1", fill_type="solid")
                     teks_putih = Font(name="Arial", size=11, bold=True, color="FFFFFF")
                     teks_biasa = Font(name="Arial", size=11, bold=False, color="000000")
@@ -355,7 +406,7 @@ if cek_login():
             st.write("---")
             st.markdown("### ⚙️ Pengaturan Profil Karyawan & Data Master")
             
-            # --- MENU CRUD MASTER PEGAWAI ---
+            # --- CRUD MANAGEMENT MASTER PEGAWAI ---
             with st.expander("➕ Tambahkan Profil Karyawan Baru"):
                 with st.form("form_tambah_p", clear_on_submit=True):
                     add_nip = st.text_input("NIP Baru (Harus Unik):")
@@ -412,25 +463,25 @@ if cek_login():
                         st.rerun()
 
             # ==============================================================================
-            # 🛑 CRITICAL ZONE: HAPUS BARIS TERAKHIR & HAPUS SHEET SPESIFIK (DROPDOWN ADMIN)
+            # 🛑 ZONA BAHAYA CRITICAL: DROPDOWN DINAMIS UNTUK HAPUS SHEET BULANAN PILIHAN
             # ==============================================================================
             st.write("---")
             st.subheader("🚨 Zona Penghapusan Data Log Bulanan (Khusus Admin)")
             
-            # FITUR 1: Hapus 1 Baris Terakhir pada Tab Aktif yang sedang terpilih
+            # Fitur 1: Hapus 1 baris terakhir log di tab aktif
             if not df_master.empty:
                 if st.button(f"⚠️ Hapus 1 Baris Absensi Terakhir di Tab {sheet_aktif}", use_container_width=True):
                     try:
                         total_baris_fisik = len(ws_aktif.get_all_values())
                         if total_baris_fisik > 1:
                             ws_aktif.delete_rows(total_baris_fisik)
-                            perbarui_desain_visual_sheet(ws_aktif, jumlah_kolom=9)
+                            perbarui_desain_visual_sheet(ws_aktif, jumlah_kolom=10)
                             st.success(f"Baris absensi terakhir di tab {sheet_aktif} berhasil dihapus!")
                             st.rerun()
                     except Exception as e:
                         st.error(f"Gagal menghapus baris: {e}")
             
-            # FITUR 2: Dropdown Pilihan Menghapus Lembar Sheet Log Tertentu Secara Utuh
+            # Fitur 2: Dropdown Hapus Lembar Bulanan Pilihan Secara Total
             st.write("")
             st.markdown("##### 🗑️ Hapus Satu Sheet Log Bulanan Secara Permanen")
             sheet_target_hapus = st.selectbox("Pilih Nama Sheet Log yang Ingin Dihapus Total:", options=pilihan_bulan, key="sb_hapus_sheet_tertentu")
@@ -439,7 +490,6 @@ if cek_login():
             
             if st.button(f"🚨 HAPUS SHEET {sheet_target_hapus}", type="primary", use_container_width=True, disabled=not konfirmasi_hapus_sheet):
                 try:
-                    # Proteksi Keamanan: Mencegah semua log terhapus habis tanpa sisa
                     if len(pilihan_bulan) <= 1:
                         st.error("❌ Gagal! Anda tidak bisa menghapus semua sheet log. Sisakan minimal satu sheet log bulanan aktif.")
                     else:
