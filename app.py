@@ -54,7 +54,7 @@ if cek_login():
             st.stop()
 
     # ==================== FUNGSI OTOMATISASI VISUAL SHEETS ====================
-    def perbarui_desain_visual_sheet(ws, jumlah_kolom=8):
+    def perbarui_desain_visual_sheet(ws, jumlah_kolom=9):
         try:
             ws.columns_auto_resize(1, jumlah_kolom)
             total_baris = len(ws.get_all_values())
@@ -180,13 +180,13 @@ if cek_login():
     bulan_lokal = BULAN_INDO.get(datetime.now(tz_jakarta).strftime("%B"), datetime.now(tz_jakarta).strftime("%B"))
     sheet_bulan_ini = f"Absen_{bulan_lokal}_{datetime.now(tz_jakarta).strftime('%Y')}"
     
-    # 100% SESUAI REALITA GOOGLE SHEETS ANDA (8 KOLOM)
-    HEADER_ABSEN = ["Tanggal", "Hari", "NIP", "Nama Pegawai", "Jabatan", "Jam Masuk", "Jam Pulang", "Aktivitas/Pekerjaan Hari Ini"]
+    # MATRIKS URUTAN KOLOM SPREADSHEET (Kolom 8/Status dibiarkan kosong manual)
+    HEADER_ABSEN = ["Tanggal", "Hari", "NIP", "Nama Pegawai", "Jabatan", "Jam Masuk", "Jam Pulang", "Status", "Aktivitas/Pekerjaan Hari Ini"]
 
     if sheet_bulan_ini not in daftar_sheet:
-        ws_b_init = sh.add_worksheet(title=sheet_bulan_ini, rows="1000", cols="8")
+        ws_b_init = sh.add_worksheet(title=sheet_bulan_ini, rows="1000", cols="9")
         ws_b_init.append_row(HEADER_ABSEN)
-        perbarui_desain_visual_sheet(ws_b_init, jumlah_kolom=8)
+        perbarui_desain_visual_sheet(ws_b_init, jumlah_kolom=9)
         daftar_sheet.append(sheet_bulan_ini)
 
     pilihan_bulan = [t for t in daftar_sheet if t != TAB_MASTER]
@@ -258,10 +258,10 @@ if cek_login():
                         if not df_cek.empty and not df_cek[(df_cek["Tanggal"] == tanggal_hari_ini) & (df_cek["NIP"] == str(nip_pilihan))].empty:
                             st.error(f"❌ Anda ({detail_karyawan['Nama Pegawai']}) sudah melakukan absen masuk hari ini!")
                         else:
-                            # 8 Kolom: Tanggal, Hari, NIP, Nama, Jabatan, Jam Masuk, Jam Pulang, Aktivitas
-                            baris_absen = [tanggal_hari_ini, ambil_hari_ini(), detail_karyawan["NIP"], detail_karyawan["Nama Pegawai"], detail_karyawan["Jabatan"], jam_sekarang_str, "-", "-"]
+                            # DI NONAKTIFKAN: Nilai Status (Kolom ke-8) diisi "-" agar kosong / aman diisi manual di excel.
+                            baris_absen = [tanggal_hari_ini, ambil_hari_ini(), detail_karyawan["NIP"], detail_karyawan["Nama Pegawai"], detail_karyawan["Jabatan"], jam_sekarang_str, "-", "-", "-"]
                             ws_bulan_sekarang.append_row(baris_absen)
-                            perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=8)
+                            perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=9)
                             st.success(f"🎉 Absen masuk disimpan jam {jam_sekarang_str} WIB.")
                             st.rerun()
                             
@@ -282,13 +282,14 @@ if cek_login():
                                 for idx, row in enumerate(data_cek):
                                     if str(row.get("Tanggal")) == tanggal_hari_ini and str(row.get("NIP")) == nip_pilihan:
                                         baris_sheet = idx + 2
+                                        # Sinkronisasi Koordinat Kolom:
                                         ws_bulan_sekarang.update_cell(baris_sheet, 7, jam_pulang_str)       # Kolom G (Jam Pulang)
-                                        ws_bulan_sekarang.update_cell(baris_sheet, 8, pekerjaan_hari_ini)   # Kolom H (Aktivitas)
+                                        ws_bulan_sekarang.update_cell(baris_sheet, 9, pekerjaan_hari_ini)   # Kolom I (Aktivitas)
                                         baris_ketemu = True
                                         break
                                     
                             if baris_ketemu:
-                                perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=8)
+                                perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=9)
                                 st.success(f"✨ Absen pulang tercatat jam {jam_pulang_str} WIB.")
                                 st.rerun()
                             else:
@@ -322,40 +323,44 @@ if cek_login():
             if df_master.empty:
                 st.info(f"Belum ada data absensi di tab periode '{sheet_aktif}' untuk dihitung.")
             else:
-                rekap_hadir = df_master.groupby(['NIP', 'Nama Pegawai', 'Jabatan']).size().reset_index(name='Total Hari Kerja')
-                st.dataframe(rekap_hadir, use_container_width=True, hide_index=True)
-                
-                buffer_boss = io.BytesIO()
-                with pd.ExcelWriter(buffer_boss, engine='openpyxl') as writer:
-                    rekap_hadir.to_excel(writer, index=False, sheet_name="Ringkasan_Absensi")
-                    worksheet = writer.book["Ringkasan_Absensi"]
-                    warna_header = PatternFill(start_color="1E4620", end_color="1E4620", fill_type="solid")
-                    warna_zebra = PatternFill(start_color="F1F8F1", end_color="F1F8F1", fill_type="solid")
-                    teks_putih = Font(name="Arial", size=11, bold=True, color="FFFFFF")
-                    teks_biasa = Font(name="Arial", size=11, bold=False, color="000000")
-                    rata_tengah = Alignment(horizontal="center", vertical="center")
+                try:
+                    kolom_ada = [col for col in ['NIP', 'Nama Pegawai', 'Jabatan'] if col in df_master.columns]
+                    rekap_hadir = df_master.groupby(kolom_ada).size().reset_index(name='Total Hari Kerja')
+                    st.dataframe(rekap_hadir, use_container_width=True, hide_index=True)
                     
-                    for cell in worksheet[1]:
-                        cell.fill = warna_header
-                        cell.font = teks_putih
-                        cell.alignment = rata_tengah
-                    for row_idx in range(2, worksheet.max_row + 1):
-                        for col_idx in range(1, worksheet.max_column + 1):
-                            cell = worksheet.cell(row=row_idx, column=col_idx)
-                            cell.font = teks_biasa
+                    buffer_boss = io.BytesIO()
+                    with pd.ExcelWriter(buffer_boss, engine='openpyxl') as writer:
+                        rekap_hadir.to_excel(writer, index=False, sheet_name="Ringkasan_Absensi")
+                        worksheet = writer.book["Ringkasan_Absensi"]
+                        warna_header = PatternFill(start_color="1E4620", end_color="1E4620", fill_type="solid")
+                        warna_zebra = PatternFill(start_color="F1F8F1", end_color="F1F8F1", fill_type="solid")
+                        teks_putih = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+                        teks_biasa = Font(name="Arial", size=11, bold=False, color="000000")
+                        rata_tengah = Alignment(horizontal="center", vertical="center")
+                        
+                        for cell in worksheet[1]:
+                            cell.fill = warna_header
+                            cell.font = teks_putih
                             cell.alignment = rata_tengah
-                            if row_idx % 2 == 1: cell.fill = warna_zebra
-                    for col in worksheet.columns:
-                        max_len = max(len(str(cell.value or '')) for cell in col)
-                        worksheet.column_dimensions[get_column_letter(col[0].column)].width = max(max_len + 4, 15)
-                
-                st.download_button(
-                    label="🟢 Unduh Berkas Summary Ringkasan Excel (Untuk Atasan)",
-                    data=buffer_boss.getvalue(),
-                    file_name=f"SUMMARY_ABSENSI_{sheet_aktif}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
+                        for row_idx in range(2, worksheet.max_row + 1):
+                            for col_idx in range(1, worksheet.max_column + 1):
+                                cell = worksheet.cell(row=row_idx, column=col_idx)
+                                cell.font = teks_biasa
+                                cell.alignment = rata_tengah
+                                if row_idx % 2 == 1: cell.fill = warna_zebra
+                        for col in worksheet.columns:
+                            max_len = max(len(str(cell.value or '')) for cell in col)
+                            worksheet.column_dimensions[get_column_letter(col[0].column)].width = max(max_len + 4, 15)
+                    
+                    st.download_button(
+                        label="🟢 Unduh Berkas Summary Ringkasan Excel (Untuk Atasan)",
+                        data=buffer_boss.getvalue(),
+                        file_name=f"SUMMARY_ABSENSI_{sheet_aktif}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                except Exception:
+                    st.error("Gagal memproses rekapitulasi karena struktur kolom tidak sinkron. Silakan lakukan 'Reset Total' di bawah.")
             
             st.write("---")
             st.markdown("### 📥 Ekspor Manifes Penuh (Unduh Versi Admin)")
@@ -436,7 +441,7 @@ if cek_login():
                     total_baris_fisik = len(nilai_fisik_sheet)
                     if total_baris_fisik > 1:
                         ws_target_ops.delete_rows(total_baris_fisik)
-                        perbarui_desain_visual_sheet(ws_target_ops, jumlah_kolom=8)
+                        perbarui_desain_visual_sheet(ws_target_ops, jumlah_kolom=9)
                         st.success(f"✔️ Sukses! Satu baris transaksi terakhir telah terhapus.")
                         st.rerun()
                     else:
@@ -453,7 +458,7 @@ if cek_login():
             if st.button("🚨 RESTART & WIPE OUT: BERSIHKAN SEMUA DATA SHEET LOG", type="primary", use_container_width=True, disabled=not konfirmasi_wipe_out):
                 try:
                     sheet_pemulihan_sementara = f"Mulai_Baru_{sheet_bulan_ini}"
-                    ws_temp = sh.add_worksheet(title=sheet_pemulihan_sementara, rows="1000", cols="8")
+                    ws_temp = sh.add_worksheet(title=sheet_pemulihan_sementara, rows="1000", cols="9")
                     ws_temp.append_row(HEADER_ABSEN)
                     
                     for sheet_loop in sh.worksheets():
@@ -461,7 +466,7 @@ if cek_login():
                             sh.del_worksheet(sheet_loop)
                     
                     ws_temp.update_title(sheet_bulan_ini)
-                    perbarui_desain_visual_sheet(ws_temp, jumlah_kolom=8)
+                    perbarui_desain_visual_sheet(ws_temp, jumlah_kolom=9)
                     
                     st.success("💥 Database Berhasil Direset Total!")
                     st.rerun()
