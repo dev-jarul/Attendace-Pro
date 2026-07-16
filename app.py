@@ -131,6 +131,66 @@ if cek_login():
     # --- KONSTRUKSI ZONA WAKTU LOKAL INDONESIA ---
     tz_jakarta = pytz.timezone('Asia/Jakarta')
 
+    # ==============================================================================
+    # 🔒 SISTEM PENGAMANAN GEOLOCATION KANTOR & IP BYPASS DEVELOPER
+    # ==============================================================================
+    from math import radians, sin, cos, sqrt, atan2
+    from streamlit_js_eval import streamlit_js_eval
+    import requests
+
+    # Koordinat Presisi yang Anda Temukan (Jl. Sedap Malam, Melaten Lor, Pandaan)
+    LAT_KANTOR = -7.656550    
+    LON_KANTOR = 112.693450   
+    RADIUS_TOLERANSI_METER = 50.0  # Toleransi radius aman area gedung (50 meter)
+
+    def ambil_ip_sekarang():
+        try:
+            response = requests.get('https://api.ipify.org?format=json', timeout=3)
+            return response.json()['ip']
+        except Exception:
+            return None
+
+    def hitung_jarak_meter(lat1, lon1, lat2, lon2):
+        R = 6371000.0  
+        lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return R * c
+
+    st.caption("🔒 *Sistem Verifikasi Zona Geolocation Kantor Aktif*")
+
+    ip_dev_terdaftar = st.secrets.get("jaringan", {}).get("ip_developer", "TIDAK_TERDAFTAR")
+    ip_user_sekarang = ambil_ip_sekarang()
+    akses_absen_diizinkan = False
+
+    # JALUR 1: BYPASS JIKA IP RUMAH ANDA COCOK
+    if ip_user_sekarang and ip_user_sekarang == ip_dev_terdaftar:
+        st.info(f"🔓 **Mode Developer Aktif:** Terhubung via IP Rumah Terdaftar ({ip_user_sekarang}). Validasi GPS dilewati.")
+        akses_absen_diizinkan = True
+    else:
+        # JALUR 2: WAJIB AMBIL DATA LOKASI GPS (UNTUK PEGAWAI)
+        lokasi_perangkat = streamlit_js_eval(data_name="geolocation", want_output=True, key="cek_gps_kehadiran")
+        
+        if lokasi_perangkat and 'coords' in lokasi_perangkat:
+            lat_user = lokasi_perangkat['coords']['latitude']
+            lon_user = lokasi_perangkat['coords']['longitude']
+            
+            jarak_ke_kantor = hitung_jarak_meter(lat_user, lon_user, LAT_KANTOR, LON_KANTOR)
+            
+            if jarak_ke_kantor <= RADIUS_TOLERANSI_METER:
+                st.success(f"✅ **Lokasi Terverifikasi:** Anda berada di area kantor (Jarak: {jarak_ke_kantor:.1f} meter).")
+                akses_absen_diizinkan = True
+            else:
+                st.error(f"❌ **Akses Ditolak:** Anda berada di luar area kantor (Jarak Anda: {jarak_ke_kantor:.1f} meter).")
+                akses_absen_diizinkan = False
+        else:
+            st.warning("📍 **Mendeteksi Posisi Anda...** Mohon aktifkan GPS perangkat dan ketuk **'Izinkan / Allow Location'** pada pop-up browser Anda.")
+            akses_absen_diizinkan = False
+
+    st.write("---")
+
     KAMUS_HARI = {
         "Monday": "Senin", "Tuesday": "Selasa", "Wednesday": "Rabu",
         "Thursday": "Kamis", "Friday": "Jumat", "Saturday": "Sabtu", "Sunday": "Minggu"
@@ -180,7 +240,6 @@ if cek_login():
     bulan_lokal = BULAN_INDO.get(datetime.now(tz_jakarta).strftime("%B"), datetime.now(tz_jakarta).strftime("%B"))
     sheet_bulan_ini = f"Absen_{bulan_lokal}_{datetime.now(tz_jakarta).strftime('%Y')}"
     
-    # MATRIKS URUTAN KOLOM SPREADSHEET (Kolom 8/Status dibiarkan kosong manual)
     HEADER_ABSEN = ["Tanggal", "Hari", "NIP", "Nama Pegawai", "Jabatan", "Jam Masuk", "Jam Pulang", "Status", "Aktivitas/Pekerjaan Hari Ini"]
 
     if sheet_bulan_ini not in daftar_sheet:
@@ -231,70 +290,73 @@ if cek_login():
         if df_pegawai.empty:
             st.warning("⚠️ Database karyawan kosong. Silakan masuk ke Panel Admin untuk menambah daftar nama karyawan terlebih dahulu.")
         else:
-            mode_absen = st.radio("Pilih Tipe Absensi:", ["Absen Masuk (Datang)", "Absen Pulang (Pulang)"], horizontal=True)
-            list_dropdown_karyawan = df_pegawai.apply(lambda r: f"{r['NIP']} - {r['Nama Pegawai']}", axis=1).tolist()
-            selected_karyawan = st.selectbox("Pilih Nama Anda:", options=list_dropdown_karyawan)
-            
-            nip_pilihan = selected_karyawan.split(" - ")[0]
-            detail_karyawan = df_pegawai[df_pegawai["NIP"] == nip_pilihan].iloc[0]
-            
-            with st.form("form_absen_karyawan", clear_on_submit=True):
-                st.text_input("NIP Pegawai:", value=detail_karyawan["NIP"], disabled=True)
-                st.text_input("Nama Lengkap:", value=detail_karyawan["Nama Pegawai"], disabled=True)
-                st.text_input("Jabatan / Divisi:", value=detail_karyawan["Jabatan"], disabled=True)
+            # --- PROTEKSI KETAT: HANYA MUNCUL JIKA AKSES DIIZINKAN ---
+            if akses_absen_diizinkan:
+                mode_absen = st.radio("Pilih Tipe Absensi:", ["Absen Masuk (Datang)", "Absen Pulang (Pulang)"], horizontal=True)
+                list_dropdown_karyawan = df_pegawai.apply(lambda r: f"{r['NIP']} - {r['Nama Pegawai']}", axis=1).tolist()
+                selected_karyawan = st.selectbox("Pilih Nama Anda:", options=list_dropdown_karyawan)
                 
-                if mode_absen == "Absen Masuk (Datang)":
-                    st.info(f"Jam Masuk Anda akan tercatat secara otomatis menggunakan waktu sekarang (WIB).")
-                    if st.form_submit_button("🚀 Kirim Absen Masuk", type="primary", use_container_width=True):
-                        ws_bulan_sekarang = sh.worksheet(sheet_bulan_ini)
-                        
-                        waktu_lokal = datetime.now(tz_jakarta)
-                        jam_sekarang_str = waktu_lokal.strftime("%H:%M")
-                        tanggal_hari_ini = waktu_lokal.strftime("%Y-%m-%d")
-                        
-                        data_cek = ws_bulan_sekarang.get_all_records()
-                        df_cek = pd.DataFrame(data_cek) if data_cek else pd.DataFrame(columns=HEADER_ABSEN)
-                        
-                        if not df_cek.empty and not df_cek[(df_cek["Tanggal"] == tanggal_hari_ini) & (df_cek["NIP"] == str(nip_pilihan))].empty:
-                            st.error(f"❌ Anda ({detail_karyawan['Nama Pegawai']}) sudah melakukan absen masuk hari ini!")
-                        else:
-                            # DI NONAKTIFKAN: Nilai Status (Kolom ke-8) diisi "-" agar kosong / aman diisi manual di excel.
-                            baris_absen = [tanggal_hari_ini, ambil_hari_ini(), detail_karyawan["NIP"], detail_karyawan["Nama Pegawai"], detail_karyawan["Jabatan"], jam_sekarang_str, "-", "-", "-"]
-                            ws_bulan_sekarang.append_row(baris_absen)
-                            perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=9)
-                            st.success(f"🎉 Absen masuk disimpan jam {jam_sekarang_str} WIB.")
-                            st.rerun()
-                            
-                else: 
-                    pekerjaan_hari_ini = st.text_area("Laporan Aktivitas / Realisasi Pekerjaan Hari Ini:", placeholder="Tuliskan pekerjaan Anda...")
-                    if st.form_submit_button("🔒 Kirim Absen Pulang", type="primary", use_container_width=True):
-                        if not pekerjaan_hari_ini or pekerjaan_hari_ini.strip() == "":
-                            st.error("⚠️ Gagal! Anda wajib mengisi laporan aktivitas sebelum melakukan absen pulang.")
-                        else:
+                nip_pilihan = selected_karyawan.split(" - ")[0]
+                detail_karyawan = df_pegawai[df_pegawai["NIP"] == nip_pilihan].iloc[0]
+                
+                with st.form("form_absen_karyawan", clear_on_submit=True):
+                    st.text_input("NIP Pegawai:", value=detail_karyawan["NIP"], disabled=True)
+                    st.text_input("Nama Lengkap:", value=detail_karyawan["Nama Pegawai"], disabled=True)
+                    st.text_input("Jabatan / Divisi:", value=detail_karyawan["Jabatan"], disabled=True)
+                    
+                    if mode_absen == "Absen Masuk (Datang)":
+                        st.info(f"Jam Masuk Anda akan tercatat secara otomatis menggunakan waktu sekarang (WIB).")
+                        if st.form_submit_button("🚀 Kirim Absen Masuk", type="primary", use_container_width=True):
                             ws_bulan_sekarang = sh.worksheet(sheet_bulan_ini)
-                            waktu_lokal = datetime.now(tz_jakarta)
-                            tanggal_hari_ini = waktu_lokal.strftime("%Y-%m-%d")
-                            jam_pulang_str = waktu_lokal.strftime("%H:%M")
-                            data_cek = ws_bulan_sekarang.get_all_records()
-                            baris_ketemu = False
                             
-                            if data_cek:
-                                for idx, row in enumerate(data_cek):
-                                    if str(row.get("Tanggal")) == tanggal_hari_ini and str(row.get("NIP")) == nip_pilihan:
-                                        baris_sheet = idx + 2
-                                        # Sinkronisasi Koordinat Kolom:
-                                        ws_bulan_sekarang.update_cell(baris_sheet, 7, jam_pulang_str)       # Kolom G (Jam Pulang)
-                                        ws_bulan_sekarang.update_cell(baris_sheet, 9, pekerjaan_hari_ini)   # Kolom I (Aktivitas)
-                                        baris_ketemu = True
-                                        break
-                                    
-                            if baris_ketemu:
-                                perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=9)
-                                st.success(f"✨ Absen pulang tercatat jam {jam_pulang_str} WIB.")
-                                st.rerun()
+                            waktu_lokal = datetime.now(tz_jakarta)
+                            jam_sekarang_str = waktu_lokal.strftime("%H:%M")
+                            tanggal_hari_ini = waktu_lokal.strftime("%Y-%m-%d")
+                            
+                            data_cek = ws_bulan_sekarang.get_all_records()
+                            df_cek = pd.DataFrame(data_cek) if data_cek else pd.DataFrame(columns=HEADER_ABSEN)
+                            
+                            if not df_cek.empty and not df_cek[(df_cek["Tanggal"] == tanggal_hari_ini) & (df_cek["NIP"] == str(nip_pilihan))].empty:
+                                st.error(f"❌ Anda ({detail_karyawan['Nama Pegawai']}) sudah melakukan absen masuk hari ini!")
                             else:
-                                st.error(f"❌ Log absen masuk tanggal {tanggal_hari_ini} tidak ditemukan di bulan ini.")
+                                baris_absen = [tanggal_hari_ini, ambil_hari_ini(), detail_karyawan["NIP"], detail_karyawan["Nama Pegawai"], detail_karyawan["Jabatan"], jam_sekarang_str, "-", "-", "-"]
+                                ws_bulan_sekarang.append_row(baris_absen)
+                                perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=9)
+                                st.success(f"🎉 Absen masuk disimpan jam {jam_sekarang_str} WIB.")
+                                st.rerun()
+                                
+                    else: 
+                        pekerjaan_hari_ini = st.text_area("Laporan Aktivitas / Realisasi Pekerjaan Hari Ini:", placeholder="Tuliskan pekerjaan Anda...")
+                        if st.form_submit_button("🔒 Kirim Absen Pulang", type="primary", use_container_width=True):
+                            if not pekerjaan_hari_ini or pekerjaan_hari_ini.strip() == "":
+                                st.error("⚠️ Gagal! Anda wajib mengisi laporan aktivitas sebelum melakukan absen pulang.")
+                            else:
+                                ws_bulan_sekarang = sh.worksheet(sheet_bulan_ini)
+                                waktu_lokal = datetime.now(tz_jakarta)
+                                tanggal_hari_ini = waktu_lokal.strftime("%Y-%m-%d")
+                                jam_pulang_str = waktu_lokal.strftime("%H:%M")
+                                data_cek = ws_bulan_sekarang.get_all_records()
+                                baris_ketemu = False
+                                
+                                if data_cek:
+                                    for idx, row in enumerate(data_cek):
+                                        if str(row.get("Tanggal")) == tanggal_hari_ini and str(row.get("NIP")) == nip_pilihan:
+                                            baris_sheet = idx + 2
+                                            ws_bulan_sekarang.update_cell(baris_sheet, 7, jam_pulang_str)       
+                                            ws_bulan_sekarang.update_cell(baris_sheet, 9, pekerjaan_hari_ini)   
+                                            baris_ketemu = True
+                                            break
+                                        
+                                if baris_ketemu:
+                                    perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=9)
+                                    st.success(f"✨ Absen pulang tercatat jam {jam_pulang_str} WIB.")
+                                    st.rerun()
+                                else:
+                                    st.error(f"❌ Log absen masuk tanggal {tanggal_hari_ini} tidak ditemukan di bulan ini.")
+            else:
+                st.info("🔒 **Form Absensi Terkunci:** Silakan penuhi kriteria jaringan atau lokasi GPS Anda untuk membuka form pengisian.")
 
+        # Manifes log diletakkan di luar IF agar riwayat tetap bisa diintip
         if not df_master.empty:
             st.write("---")
             st.subheader(f"📊 Manifes Log Absensi - Periode {sheet_aktif}")
@@ -360,7 +422,7 @@ if cek_login():
                         use_container_width=True
                     )
                 except Exception:
-                    st.error("Gagal memproses rekapitulasi karena struktur kolom tidak sinkron. Silakan lakukan 'Reset Total' di bawah.")
+                    st.error("Gagal memproses rekapitulasi...")
             
             st.write("---")
             st.markdown("### 📥 Ekspor Manifes Penuh (Unduh Versi Admin)")
