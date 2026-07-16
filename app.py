@@ -231,6 +231,14 @@ if cek_login():
     if not df_pegawai.empty and "NIP" in df_pegawai.columns:
         df_pegawai.loc[:, "NIP"] = df_pegawai["NIP"].astype(str)
 
+    # ==============================================================================
+    # 📝 RESOLUSI SOLUSI NAMEERROR: DEFINISI LIST DROPDOWN SECARA GLOBAL
+    # ==============================================================================
+    if not df_pegawai.empty:
+        list_dropdown_karyawan = df_pegawai.apply(lambda r: f"{r['NIP']} - {r['Nama Pegawai']}", axis=1).tolist()
+    else:
+        list_dropdown_karyawan = []
+
     # Setup Otomatis Nama Sheet Bulanan Aktif Saat Ini
     BULAN_INDO = {
         "January": "Januari", "February": "Februari", "March": "Maret", "April": "April",
@@ -293,7 +301,6 @@ if cek_login():
             # --- PROTEKSI KETAT: HANYA MUNCUL JIKA AKSES DIIZINKAN ---
             if akses_absen_diizinkan:
                 mode_absen = st.radio("Pilih Tipe Absensi:", ["Absen Masuk (Datang)", "Absen Pulang (Pulang)"], horizontal=True)
-                list_dropdown_karyawan = df_pegawai.apply(lambda r: f"{r['NIP']} - {r['Nama Pegawai']}", axis=1).tolist()
                 selected_karyawan = st.selectbox("Pilih Nama Anda:", options=list_dropdown_karyawan)
                 
                 nip_pilihan = selected_karyawan.split(" - ")[0]
