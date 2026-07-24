@@ -11,11 +11,10 @@ from geopy.distance import geodesic
 from streamlit_js_eval import get_geolocation
 
 # ==================== KONFIGURASI KANTOR & GEOFENCING ====================
-# Ganti dengan koordinat GPS lokasi kantor kamu (Contoh: Stageof Pasuruan / Kantor Utama)
-KANTOR_LAT = -7.663853
-KANTOR_LON = 112.688976
-RADIUS_MAKSIMAL_METER = 100  # Jarak toleransi maksimal dalam meter
-PIN_DEVELOPER = "dev2026"     # PIN rahasia untuk Bypass Mode Developer dari rumah
+KANTOR_LAT = -7.6432
+KANTOR_LON = 112.9075
+RADIUS_MAKSIMAL_METER = 100  # Jarak toleransi maksimal (meter)
+PIN_DEVELOPER = "dev2026"     # PIN bypass dari rumah
 
 # --- KONFIGURASI HALAMAN WEB ---
 st.set_page_config(page_title="Office Attendance Cloud", page_icon="🏢", layout="centered")
@@ -139,11 +138,10 @@ if cek_login():
         hari_inggris = datetime.now(tz_jakarta).strftime("%A")
         return KAMUS_HARI.get(hari_inggris, hari_inggris)
 
-    # Ambil Dokumen Spreadsheet Utama
     sh = dapatkan_koneksi_spreadsheet()
     daftar_sheet = [ws.title for ws in sh.worksheets()]
     
-    # --- INISIALISASI TAB MASTER PEGAWAI ---
+    # --- TAB MASTER PEGAWAI ---
     TAB_MASTER = "Master_Pegawai"
     HEADER_MASTER = ["NIP", "Nama Pegawai", "Jabatan"]
     
@@ -169,7 +167,7 @@ if cek_login():
 
     df_pegawai["NIP"] = df_pegawai["NIP"].astype(str)
 
-    # Setup Otomatis Nama Sheet Bulanan Aktif Saat Ini
+    # Otomatisasi Nama Sheet Bulanan Aktif
     BULAN_INDO = {
         "January": "Januari", "February": "Februari", "March": "Maret", "April": "April",
         "May": "Mei", "June": "Juni", "July": "Juli", "August": "Agustus",
@@ -177,7 +175,9 @@ if cek_login():
     }
     bulan_lokal = BULAN_INDO.get(datetime.now(tz_jakarta).strftime("%B"), datetime.now(tz_jakarta).strftime("%B"))
     sheet_bulan_ini = f"Absen_{bulan_lokal}_{datetime.now(tz_jakarta).strftime('%Y')}"
-    HEADER_ABSEN = ["Tanggal", "Hari", "NIP", "Nama Pegawai", "Jabatan", "Jam Masuk", "Jam Pulang", "Status", "Jam Kerja", "Aktivitas/Pekerjaan Hari Ini"]
+    
+    # HEADER ABSENSI LENGKAP 10 KOLOM
+    HEADER_ABSEN = ["Tanggal", "Hari", "NIP", "Nama Pegawai", "Jabatan", "Jam Masuk", "Jam Pulang", "Status", "Jam Kerja", "Aktivitas/Target"]
 
     if sheet_bulan_ini not in daftar_sheet:
         ws_b_init = sh.add_worksheet(title=sheet_bulan_ini, rows="1000", cols="10")
@@ -185,7 +185,6 @@ if cek_login():
         perbarui_desain_visual_sheet(ws_b_init, jumlah_kolom=10)
         daftar_sheet.append(sheet_bulan_ini)
 
-    # --- LOGIKA PROTEKSI OTOMATIS (Mencegah Penumpukan Sheet / Maks 12 Periode) ---
     pilihan_bulan = [t for t in daftar_sheet if t != TAB_MASTER]
     MAX_LOG_BULANAN = 12
     
@@ -198,7 +197,7 @@ if cek_login():
         except Exception:
             pass
 
-    # --- SIDEBAR: MODE PENGEMBANG & BYPASS ---
+    # --- SIDEBAR: MODE PENGEMBANG ---
     st.sidebar.title("🛠️ Mode Operasional")
     mode_akses = st.sidebar.radio("Pilih Mode Akses:", ["📍 Mode Pegawai (Sesuai Radius GPS)", "💻 Mode Developer (Maintenance Remote)"])
     
@@ -281,7 +280,7 @@ if cek_login():
                 st.text_input("Jabatan / Divisi:", value=detail_karyawan["Jabatan"], disabled=True)
                 
                 if mode_absen == "Absen Masuk (Datang)":
-                    st.info(f"Jam Masuk Anda akan tercatat secara otomatis menggunakan waktu sekarang (WIB).")
+                    st.info(f"Jam Masuk Anda akan tercatat secara otomatis menggunakan waktu sekarang (WIB). **Batas Toleransi: 07.30 WIB**.")
                     tombol_masuk = st.form_submit_button("🚀 Kirim Absen Masuk", type="primary", use_container_width=True, disabled=not lokasi_valid)
                     
                     if tombol_masuk:
@@ -289,7 +288,9 @@ if cek_login():
                         
                         waktu_lokal = datetime.now(tz_jakarta)
                         jam_sekarang_str = waktu_lokal.strftime("%H:%M")
-                        status_hadir = "Tepat Waktu" if waktu_lokal.time() <= datetime.strptime("08:00", "%H:%M").time() else "Terlambat"
+                        
+                        # --- PENETAPAN BATAS WAKTU ASN (07:30 WIB) ---
+                        status_hadir = "Tepat Waktu" if waktu_lokal.time() <= datetime.strptime("07:30", "%H:%M").time() else "Terlambat"
                         tanggal_hari_ini = waktu_lokal.strftime("%Y-%m-%d")
                         
                         data_cek = ws_bulan_sekarang.get_all_records()
@@ -298,6 +299,7 @@ if cek_login():
                         if not df_cek.empty and not df_cek[(df_cek["Tanggal"] == tanggal_hari_ini) & (df_cek["NIP"] == str(nip_pilihan))].empty:
                             st.error(f"❌ Anda ({detail_karyawan['Nama Pegawai']}) sudah melakukan absen masuk hari ini!")
                         else:
+                            # 10 Kolom Berurutan
                             baris_absen = [tanggal_hari_ini, ambil_hari_ini(), detail_karyawan["NIP"], detail_karyawan["Nama Pegawai"], detail_karyawan["Jabatan"], jam_sekarang_str, "-", status_hadir, "00:00", "-"]
                             ws_bulan_sekarang.append_row(baris_absen)
                             perbarui_desain_visual_sheet(ws_bulan_sekarang, jumlah_kolom=10)
@@ -336,6 +338,7 @@ if cek_login():
                                             durasi_kerja_str = "00:00"
                                         
                                         baris_sheet = idx + 2
+                                        # Update Kolom 7 (Jam Pulang), Kolom 9 (Jam Kerja), Kolom 10 (Aktivitas/Target)
                                         ws_bulan_sekarang.update_cell(baris_sheet, 7, jam_pulang_str)
                                         ws_bulan_sekarang.update_cell(baris_sheet, 9, durasi_kerja_str)
                                         ws_bulan_sekarang.update_cell(baris_sheet, 10, pekerjaan_hari_ini)
@@ -373,7 +376,6 @@ if cek_login():
             st.success("Akses Terbuka. Silakan kelola manajemen kantor di bawah ini.")
             st.write("---")
             
-            # --- REKAPITULASI DIREKSI ---
             st.markdown("### 📊 📈 Rekapitulasi Performa Bulanan (Laporan Atasan)")
             if df_master.empty:
                 st.info(f"Belum ada data absensi di tab periode '{sheet_aktif}' untuk dihitung.")
@@ -489,9 +491,7 @@ if cek_login():
                         st.success("🗑️ Data pegawai berhasil dihapus dari Master!")
                         st.rerun()
 
-            # ==============================================================================
-            # MANAGEMENT LOG PENYELESAIAN MASALAH
-            # ==============================================================================
+            # --- MANAGEMENT LOG ---
             st.write("---")
             st.subheader("⚙️ Manajer Penghapusan Data Log Kontrol")
             
